@@ -1,0 +1,4 @@
+/target
+cargo.lock
+main.exe
+main.pdb
