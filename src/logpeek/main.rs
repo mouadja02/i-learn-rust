@@ -2,7 +2,9 @@ use std::fs;
 use std::str;
 use clap::Parser;
 
-// logppeek help exploring the log files easily
+// Example usage:
+// cargo run --bin logpeek -- logs/app.log --contains "timeout"
+// logpeek help exploring the log files easily
 // logpeek app.log --errors , shows the error lines in the log file 
 // logpeek app.log --contains "timeout" , shows the lines that contains the word "timeout"
 // logpeek app.log --last 50 , shows the last 50 lines of the log file
@@ -182,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_read_file_success() {
-        let path = "test_data/sample.txt";
+        let path = "../../test_data/sample.txt";
         let result = read_file(path);
         assert!(result.is_ok());
         let data = result.unwrap();

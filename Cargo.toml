@@ -1,5 +1,7 @@
 [workspace]
 members = [
     "src/logpeek",
+    "src/csvprof",
+    "src/nvader",
 ]
 resolver = "2"
