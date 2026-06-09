@@ -39,7 +39,7 @@ id,name,age,email,country,salary,hire_date,department,active,score,purchases,rat
 38,Luna,60,luna@example.com,South Korea,35109.68,2023-03-11,Design,true,,38,4.5,
 39,Max,61,max@example.com,Portugal,36381.24,2024-04-12,Support,true,10,0,5.0,
 40,Nina,62,nina@example.com,USA,37652.8,2015-05-13,Engineering,true,20,40,,
-41,Alice41,63,alice41@example.com,UK,38924.36,2016-06-14,Marketing,true,33.75,41,1.0,contains, comma
+41,Alice41,63,alice41@example.com,UK,38924.36,2016-06-14,Marketing,true,33.75,41,1.0,
 42,Bob42,64,bob42@example.com,France,31554,2017-07-15,Sales,true,47.5,42,1.5,flagged for review
 43,Charlie43,22,charlie43@example.com,Germany,32825.56,2018-08-16,HR,true,61.25,43,2.0,
 44,Diana44,23,diana44@example.com,Canada,34097.12,2019-09-17,Finance,false,75,44,2.5,
