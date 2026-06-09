@@ -80,7 +80,7 @@ id,name,age,email,country,salary,hire_date,department,active,score,purchases,rat
 79,Max79,58,max79@example.com,Portugal,35392.12,2024-08-24,Support,true,30,79,5.0,
 80,Nina80,59,nina80@example.com,USA,36663.68,2015-09-25,Engineering,true,40,80,,
 81,Alice81,60,alice81@example.com,UK,37935.24,2016-10-26,Marketing,true,53.75,81,1.0,
-82,Bob82,61,bob82@example.com,France,39206.8,2017-11-27,Sales,true,67.5,82,1.5,contains, comma
+82,Bob82,61,bob82@example.com,France,39206.8,2017-11-27,Sales,true,67.5,82,1.5,
 83,Charlie83,62,charlie83@example.com,Germany,40478.36,2018-12-28,HR,true,81.25,83,2.0,
 84,Diana84,63,diana84@example.com,Canada,33108,2019-01-01,Finance,true,95,84,2.5,flagged for review
 85,Eve85,,eve85@example.com,Australia,34379.56,2020-02-02,Operations,true,5,85,3.0,
