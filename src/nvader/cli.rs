@@ -1,14 +1,10 @@
-use std::env;
 use std::path::PathBuf;
 use std::process;
 
 use clap::{Parser, Subcommand};
 use colored::*;
 
-use super::chunking::chunk_document;
 use super::embeddings::get_embedder;
-use super::loaders::{load_markdown_file, load_text_file};
-use super::vector_store::InMemoryVectorStore;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -26,10 +22,10 @@ pub enum Commands {
     Info,
     /// Print the two-month certification build roadmap
     Roadmap,
-    /// Load a file, chunk it, and search with a query
+    /// Index and search files or a directory
     Search {
-        /// File to index and search
-        file: PathBuf,
+        /// File or directory to index and search
+        path: PathBuf,
         /// Search query
         query: String,
         /// Number of results to return
@@ -41,6 +37,12 @@ pub enum Commands {
         /// Overlap between chunks
         #[arg(long, default_value_t = 100)]
         chunk_overlap: usize,
+        /// Reconvert PDF files to Markdown
+        #[arg(long, default_value_t = false)]
+        reconvert: bool,   
+        /// Optional output path for search results (JSON)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -66,8 +68,8 @@ pub fn run(cli: Cli) {
     match cli.command {
         Commands::Info => cmd_info(),
         Commands::Roadmap => cmd_roadmap(),
-        Commands::Search { file, query, top_k, chunk_size, chunk_overlap } => {
-            cmd_search(file, &query, top_k, chunk_size, chunk_overlap);
+        Commands::Search { path, query, top_k, chunk_size, chunk_overlap, reconvert, output } => {
+            cmd_search(path, &query, top_k, chunk_size, chunk_overlap, reconvert, output);
         }
     }
 }
@@ -94,43 +96,41 @@ fn cmd_roadmap() {
     println!("  Week 8: Monitoring, safety, HITL, final exam prep");
 }
 
-fn cmd_search(file: PathBuf, query: &str, top_k: usize, chunk_size: usize, chunk_overlap: usize) {
-    let path_str = file.to_string_lossy();
-    let extension = file.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-    let document = match extension {
-        "md" | "markdown" => load_markdown_file(&path_str),
-        "txt" => load_text_file(&path_str),
-        _ => {
-            eprintln!("{} Unsupported file type: .{}. Supported: .md, .txt", "Error:".red().bold(), extension);
-            process::exit(1);
-        }
-    };
-
-    let document = match document {
-        Some(doc) => doc,
-        None => {
-            eprintln!("{} Failed to load file: {}", "Error:".red().bold(), path_str);
-            process::exit(1);
-        }
-    };
-
-    let chunks = chunk_document(document, chunk_size, chunk_overlap);
-    if chunks.is_empty() {
-        println!("{}", "No chunks produced — file may be empty.".yellow());
-        return;
+fn cmd_search(path: PathBuf, query: &str, top_k: usize, chunk_size: usize, chunk_overlap: usize, reconvert: bool, output: Option<PathBuf>) {
+    if query.trim().is_empty() {
+        eprintln!("{} Query cannot be empty.", "Error:".red().bold());
+        process::exit(1);
     }
 
     // Load .env file (silently ignore if missing)
     dotenv::dotenv().ok();
-    let api_key = env::var("NVIDIA_API_KEY").ok();
+    let api_key = std::env::var("NVIDIA_API_KEY").ok();
     let embedder = get_embedder(None, api_key.as_deref(), None);
 
-    let mut store = InMemoryVectorStore::new(embedder);
-    println!("Embedding {} chunk(s)...", chunks.len());
-    store.add_chunks(chunks);
+    let path_str = path.to_string_lossy();
+    let llm_model = "nvidia/nemotron-nano-12b-v2-vl";
 
-    let results = store.search(query, top_k);
+    let mut results = super::pipeline::search_path(
+        &path_str,
+        query,
+        top_k,
+        chunk_size,
+        chunk_overlap,
+        embedder,
+        llm_model,
+        reconvert,
+    ).unwrap_or_else(|| {
+        eprintln!("{} No supported files found at: {}", "Error:".red().bold(), path_str);
+        process::exit(1);
+    });
+
+    // Sort globally by score descending and rebuild rank
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    for (i, r) in results.iter_mut().enumerate() {
+        r.rank = i + 1;
+    }
+    let results = &results[..results.len().min(top_k)];
+
     if results.is_empty() {
         println!("{}", "No results found.".yellow());
         return;
@@ -138,10 +138,10 @@ fn cmd_search(file: PathBuf, query: &str, top_k: usize, chunk_size: usize, chunk
 
     // Print results table
     println!();
-    println!("{}", format!("Search results for \"{}\"", query).bold());
+    println!("{}", format!("Top {} results for \"{}\"", top_k, query).bold());
     println!("{:-<80}", "");
     println!(
-        "{:<6} {:<8} {:<20} {:<12} {}",
+        "{:<6} {:<10} {:<30} {:<14} {}",
         "Rank".bold(),
         "Score".bold(),
         "Source".bold(),
@@ -150,23 +150,62 @@ fn cmd_search(file: PathBuf, query: &str, top_k: usize, chunk_size: usize, chunk
     );
     println!("{:-<80}", "");
 
-    for r in &results {
-        let preview: String = r.chunk.text.chars().take(120).collect::<String>().replace('\n', " ");
-        let preview = if r.chunk.text.len() > 120 {
+    for r in results {
+        // Strip \r and \n to prevent carriage-return overwrites on Windows terminals
+        let clean_text = r.chunk.text.replace('\r', "").replace('\n', " ");
+        let preview: String = clean_text.chars().take(120).collect();
+        let preview = if r.chunk.text.chars().count() > 120 {
             format!("{}…", preview.trim())
         } else {
             preview.trim().to_string()
         };
         let offsets = format!("{}–{}", r.chunk.start_char, r.chunk.end_char);
+        // Truncate source to fit the column without overflowing
+        let source: String = r.chunk.source.chars().rev()
+            .take(28).collect::<String>().chars().rev().collect();
+        let source = if r.chunk.source.chars().count() > 28 {
+            format!("…{}", source)
+        } else {
+            source
+        };
 
         println!(
-            "{:<6} {:<8.4} {:<20} {:<12} {}",
+            "{:<6} {:<10.4} {:<30} {:<14} {}",
             r.rank,
             r.score,
-            r.chunk.source,
+            source,
             offsets,
             preview,
         );
     }
     println!("{:-<80}", "");
+
+    if let Some(out_path) = output {
+        if let Some(parent) = out_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+        let payload: Vec<serde_json::Value> = results.iter().map(|r| {
+            serde_json::json!({
+                "rank": r.rank,
+                "score": r.score,
+                "source": r.chunk.source,
+                "start_char": r.chunk.start_char,
+                "end_char": r.chunk.end_char,
+                "chunk_id": r.chunk.id,
+                "document_id": r.chunk.document_id,
+                "chunk_index": r.chunk.chunk_index,
+                "text": r.chunk.text,
+                "metadata": r.chunk.metadata,
+            })
+        }).collect();
+        match serde_json::to_string_pretty(&payload) {
+            Ok(json_str) => match std::fs::write(&out_path, json_str) {
+                Ok(_) => println!("{}", format!("Results saved to {}", out_path.display()).dimmed()),
+                Err(e) => eprintln!("{} Failed to write output: {}", "Error:".red().bold(), e),
+            },
+            Err(e) => eprintln!("{} Failed to serialize results: {}", "Error:".red().bold(), e),
+        }
+    }
 }

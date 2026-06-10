@@ -12,7 +12,7 @@ fn chunk_text(text: &str, chunk_size: usize, chunk_overlap: usize) -> Vec<(Strin
     let chars: Vec<char> = text.chars().collect();
     let text_len = chars.len();
     let length = text.len();
-    print!("text.length {} chars.length {}", length, text_len);
+    eprintln!("text.length {} chars.length {}", length, text_len);
     let mut chunks = Vec::new();
     let mut start = 0;
 

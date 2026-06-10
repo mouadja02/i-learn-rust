@@ -1,6 +1,5 @@
 use sha2::{Digest, Sha256};
-use openai_api_rust::*;
-use openai_api_rust::embeddings::*;
+use serde::{Deserialize, Serialize};
 
 pub trait Embedder {
     fn embed_texts(&self, texts: &[String]) -> Vec<Vec<f32>>;
@@ -13,8 +12,29 @@ pub struct NvidiaEmbedder {
     pub model: String,
     pub base_url: String,
     pub api_key: String,
-    pub client: OpenAI,
+    client: reqwest::blocking::Client,
 }
+
+// ── Request / response shapes (OpenAI-compatible) ─────────────────────────────
+
+#[derive(Serialize)]
+struct EmbedRequest {
+    model: String,
+    input: Vec<String>,
+    encoding_format: String,
+}
+
+#[derive(Deserialize)]
+struct EmbedResponse {
+    data: Vec<EmbedData>,
+}
+
+#[derive(Deserialize)]
+struct EmbedData {
+    embedding: Vec<f32>,
+}
+
+// ── HashEmbedder ──────────────────────────────────────────────────────────────
 
 impl HashEmbedder {
     const EMBEDDING_DIM: usize = 384;
@@ -59,60 +79,58 @@ impl Embedder for HashEmbedder {
 
 impl NvidiaEmbedder {
     pub fn new(model: Option<&str>, api_key: Option<&str>, base_url: Option<&str>) -> Self {
-        let resolved_key = api_key.unwrap_or("");
-        let resolved_base = base_url.unwrap_or("https://integrate.api.nvidia.com/v1");
-        let auth = Auth::new(resolved_key);
         Self {
             model: model.unwrap_or("nvidia/nv-embed-v1").to_string(),
-            base_url: resolved_base.to_string(),
-            api_key: resolved_key.to_string(),
-            client: OpenAI::new(auth, resolved_base)
+            base_url: base_url.unwrap_or("https://integrate.api.nvidia.com/v1").to_string(),
+            api_key: api_key.unwrap_or("").to_string(),
+            client: reqwest::blocking::Client::new(),
         }
+    }
+
+    fn call_api(&self, inputs: Vec<String>) -> Result<Vec<Vec<f32>>, String> {
+        let url = format!("{}/embeddings", self.base_url);
+        let body = EmbedRequest {
+            model: self.model.clone(),
+            input: inputs,
+            encoding_format: "float".to_string(),
+        };
+        let resp = self.client
+            .post(&url)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        let status = resp.status();
+        let text = resp.text().map_err(|e| format!("Failed to read body: {}", e))?;
+
+        if !status.is_success() {
+            return Err(format!("API error {}: {}", status, text));
+        }
+
+        let parsed: EmbedResponse = serde_json::from_str(&text)
+            .map_err(|e| format!("Failed to parse response: {} — body: {}", e, text))?;
+
+        Ok(parsed.data.into_iter().map(|d| d.embedding).collect())
     }
 }
 
 impl Embedder for NvidiaEmbedder {
     fn embed_texts(&self, texts: &[String]) -> Vec<Vec<f32>> {
-        let mut results: Vec<Vec<f32>> = Vec::new();
-        for text in texts {
-            let embed_body = EmbeddingsBody {
-                model: self.model.clone(),
-                input: vec![text.clone()],
-                user: None,
-            };
-            let response: ApiResult<Embeddings> = self.client.embeddings_create(&embed_body);
-            match response {
-                Ok(res) => {
-                    let data = res.data.expect("embedding response should contain data");
-                    let embedding = data.first().expect("embedding data should not be empty");
-                    let vec = embedding.embedding.as_ref().expect("embedding vector should be present");
-                    results.push(vec.iter().map(|&v| v as f32).collect());
-                }
-                Err(e) => {
-                    eprintln!("Error embedding text: {}", e);
-                    results.push(vec![]);
-                }
+        match self.call_api(texts.to_vec()) {
+            Ok(vecs) => vecs,
+            Err(e) => {
+                eprintln!("NvidiaEmbedder error: {}", e);
+                texts.iter().map(|_| vec![]).collect()
             }
         }
-        results
     }
 
     fn embed_query(&self, query: &str) -> Vec<f32> {
-        let req_body = EmbeddingsBody {
-            model: self.model.clone(),
-            input: vec![query.to_string()],
-            user: None,
-        };
-        let response: ApiResult<Embeddings> = self.client.embeddings_create(&req_body);
-        match response {
-            Ok(res) => {
-                let data = res.data.expect("embedding response should contain data");
-                let embedding = data.first().expect("embedding data should not be empty");
-                embedding.embedding.as_ref().expect("embedding vector should be present")
-                    .iter().map(|&v| v as f32).collect()
-            }
+        match self.call_api(vec![query.to_string()]) {
+            Ok(mut vecs) => vecs.pop().unwrap_or_default(),
             Err(e) => {
-                eprintln!("Error embedding query: {}", e);
+                eprintln!("NvidiaEmbedder error: {}", e);
                 vec![]
             }
         }

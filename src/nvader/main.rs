@@ -5,6 +5,8 @@ mod chunking;
 mod embeddings;
 mod vector_store;
 mod cli;
+mod pdf2md;
+mod pipeline;
 
 use clap::Parser;
 use cli::Cli;

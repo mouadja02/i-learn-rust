@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, BTreeMap};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DocumentType {
     TEXT,
