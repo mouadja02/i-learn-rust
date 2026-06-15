@@ -11,12 +11,22 @@ impl PositiveNonzeroInteger {
     fn new(value: i64) -> Result<Self, CreationError> {
         // TODO: This function shouldn't always return an `Ok`.
         // Read the tests below to clarify what should be returned.
-        Ok(Self(value as u64))
+        match value {
+            v if v > 0 => Ok(PositiveNonzeroInteger(v as u64)),
+            0 => Err(CreationError::Zero),
+            v if v < 0 => Err(CreationError::Negative),
+            _ => Err(CreationError::Negative),
+        }
     }
 }
 
 fn main() {
-    // You can optionally experiment here.
+    let positive_integer : i64 = 10;
+    let _ = PositiveNonzeroInteger::new(positive_integer);
+    println!("Success! Created a PositiveNonzeroInteger from {positive_integer}");
+
+    let negative_case = PositiveNonzeroInteger::new(-10);
+    println!("We expected an error but got: {negative_case:?}");
 }
 
 #[cfg(test)]
