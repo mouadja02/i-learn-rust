@@ -2,6 +2,6 @@
 members = [
     "src/logpeek",
     "src/csvprof",
-    "src/nvader",
+    "src/nvader", "rustlings",
 ]
 resolver = "2"
