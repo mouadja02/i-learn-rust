@@ -1,10 +1,10 @@
 macro_rules! my_macro {
-    () => {
-        println!("Check out my macro!");
+    (string: $string:expr) => {
+        println!("Check out my macro: {}", $string);
     };
 }
 
 fn main() {
     // TODO: Fix the macro call.
-    my_macro();
+    my_macro!(string: "Hello, world!");
 }
